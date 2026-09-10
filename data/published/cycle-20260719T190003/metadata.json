@@ -1,0 +1,12 @@
+{
+  "start": "2026-07-19T19:00:03+00:00",
+  "end_exclusive": "2026-09-06T19:00:03+00:00",
+  "mode": "completed",
+  "regional_rows": 141871,
+  "crisis_rows": 0,
+  "first_regional_event": "2026-07-19T19:00:46+00:00",
+  "last_regional_event": "2026-08-23T05:30:32+00:00",
+  "generated_at": "2026-09-10T03:45:08.090655+00:00",
+  "coverage": "Scoring data available through August 23, 2026.",
+  "sha256": "598fd306dfddab10dfc547550a7d6736bb549468d97a2b2db6a9a22e4c486b98"
+}

@@ -1,0 +1,12 @@
+{
+  "start": "2026-04-12T19:00:03+00:00",
+  "end_exclusive": "2026-07-19T19:00:03+00:00",
+  "mode": "completed",
+  "regional_rows": 136459,
+  "crisis_rows": 0,
+  "first_regional_event": "2026-04-12T19:00:23+00:00",
+  "last_regional_event": "2026-06-01T08:30:23+00:00",
+  "generated_at": "2026-09-10T04:20:51.412724+00:00",
+  "coverage": "Historical backfill. Exact export overlaps were removed. Complete interval coverage is not verified; no event-result records were available.",
+  "sha256": "0beef8e511cb4e7f6c91b5951960f8b958945e7cd7546f000127438a9e9ac7e8"
+}
