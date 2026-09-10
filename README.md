@@ -1,6 +1,8 @@
-# GCW metrics
+# GCW Observatory
 
-Explore regional scoring by cycle, faction, planet, scoring type and source ID.
+A public dashboard for GCW scoring across three periods.
+Overview, Scoring, Planets and Records views support faction and date filters,
+source-ID search and downloads of selected records. Empty cycles are hidden.
 A separate **Latest Shatterpoint** view shows the latest event's recorded Crisis
 movement using its own event dates. Older event mechanics are not compared.
 
@@ -16,13 +18,12 @@ streamlit run app.py
 ```
 
 The repository includes prepared datasets under `data/published/`. No credentials
-or access to game infrastructure are needed. The original CSV remains selectable.
-`GCW_DATA_DIR` can point to another prepared archive; a local `data/generated/`
-directory takes precedence over the bundled data if present.
+or access to game infrastructure are needed. Three populated scoring periods are available from the cycle selector.
+`GCW_DATA_DIR` can point to another prepared archive. The public bundle is used by default.
 
 ## Reading the metrics
 
-- Regional points are recorded adjustments, including deductions. They do not
+- GCW points are recorded adjustments, including deductions. They do not
   reconstruct final planetary control scores or personal character rewards.
 - A scoring record is not necessarily a unique activity. Source IDs may represent
   game objects as well as characters; they are not verified player counts.

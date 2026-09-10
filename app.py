@@ -1,490 +1,189 @@
 from pathlib import Path
-import json
 import os
-from cycles import available_cycles, cycle_label
-from event_view import show_latest_event
-
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
+from analytics import load_data, grouped_totals, grouped_timeseries, faction_line_figure, breakdown_bar_figure
+from cycles import available_cycles
+from design import setup, header, chart, table, date, FACTION_COLORS
+from event_view import show_latest_event
 
+setup()
+ROOT = Path(__file__).parent
+ARCHIVE = Path(os.environ.get("GCW_DATA_DIR", str(ROOT / "data" / "published")))
 
-st.set_page_config(page_title="GCW Point Breakdown Explorer", layout="wide")
-
-DATA_PATH = Path(__file__).parent / "data" / "gcw_points.csv"
-DEFAULT_DATA = DATA_PATH.parent / "generated"
-if not DEFAULT_DATA.exists():
-    DEFAULT_DATA = DATA_PATH.parent / "published"
-GENERATED = Path(os.environ.get("GCW_DATA_DIR", str(DEFAULT_DATA)))
-view = st.sidebar.radio('View', ['Regional cycles', 'Latest Shatterpoint'])
-if view == 'Latest Shatterpoint':
-    show_latest_event(GENERATED / 'latest_event.json')
+st.sidebar.markdown("### GCW Observatory")
+view = st.sidebar.radio("Explore", ["GCW cycles", "Latest Shatterpoint"])
+if view == "Latest Shatterpoint":
+    show_latest_event(ARCHIVE / "latest_event.json")
     st.stop()
-metadata = None
-crisis_path = None
-cycles = available_cycles(GENERATED)
-options = [c['start'] for c in cycles] + ['historical']
-labels = {c['start']: cycle_label(c) for c in cycles}
-labels['historical'] = 'Original CSV · Unverified cycle window'
-default = next((i for i, c in enumerate(cycles) if c['mode'] == 'completed'), 0)
-selected = st.sidebar.selectbox('Cycle', options, index=default, format_func=lambda value: labels[value])
-if selected != 'historical':
-    metadata = next(c for c in cycles if c['start'] == selected)
-    run_path = GENERATED / metadata['directory']
-    DATA_PATH = run_path / 'gcw_points.csv'
-    crisis_path = run_path / 'crisis.csv'
-FACTION_COLORS = {
-    "Rebel": "#e53935",
-    "Imperial": "#1e88e5",
-}
-TYPE_PALETTE = px.colors.qualitative.Set3 + px.colors.qualitative.Safe + px.colors.qualitative.Bold
 
-st.markdown(
-    """
-    <style>
-    [data-testid="stSidebar"] {
-        min-width: 24rem;
-    }
-    [data-testid="stMultiSelect"] [data-baseweb="tag"] {
-        max-width: 100%;
-        height: auto;
-    }
-    [data-testid="stMultiSelect"] [data-baseweb="tag"] span {
-        white-space: normal !important;
-        overflow: visible !important;
-        text-overflow: unset !important;
-        line-height: 1.2;
-    }
-    div[data-testid="stMetricValue"] {
-        font-size: 2.6rem;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-@st.cache_data(show_spinner=False)
-def load_data(csv_bytes: bytes) -> pd.DataFrame:
-    df = pd.read_csv(pd.io.common.BytesIO(csv_bytes), dtype={"source": "string", "reason": "string"})
-    required = ["logTimestamp", "faction", "planet", "regionName", "reason", "pointValue", "multiplier", "source"]
-    if not set(required).issubset(df.columns):
-        raise ValueError("CSV is missing required scoring columns")
-    df = df[[c for c in required + ["planetModifier", "softCapMultiplier"] if c in df.columns]].copy()
-    raw_time = df["logTimestamp"]
-    df["logTimestamp"] = pd.to_datetime(raw_time, format="%b %d, %Y @ %H:%M:%S.%f", errors="coerce", utc=True)
-    missing = df["logTimestamp"].isna()
-    df.loc[missing, "logTimestamp"] = pd.to_datetime(raw_time[missing], format="ISO8601", errors="coerce", utc=True)
-    if df["logTimestamp"].isna().any() or df.empty:
-        raise ValueError("CSV has invalid timestamps or no scoring rows")
-    df["source"] = df["source"].where(df["source"].str.fullmatch(r"-?[0-9]+", na=False), "unknown")
-    df["pointValue"] = pd.to_numeric(df["pointValue"], errors="coerce").fillna(0)
-    df["planet"] = df["planet"].fillna("unknown").replace({"null": "unknown"})
-    df["faction"] = df["faction"].fillna("unknown")
-    df["reason"] = df["reason"].fillna("unknown")
-    df["type"] = df["reason"]
-    df["source"] = df["source"].fillna("unknown").astype("string")
-    return df
-
-
-def metric_delta_text(series: pd.Series) -> str:
-    if series.empty:
-        return "No data"
-    leader = series.idxmax()
-    margin = series.max() - series.min() if len(series) > 1 else series.max()
-    return f"{leader} by {margin:,.1f}"
-
-
-def leaderboard_table(df: pd.DataFrame, group_col: str, top_n: int = 15) -> pd.DataFrame:
-    table = (
-        df.groupby(group_col, dropna=False)
-        .agg(
-            activities=("pointValue", "size"),
-            total_points=("pointValue", "sum"),
-        )
-        .sort_values("total_points", ascending=False)
-        .head(top_n)
-        .reset_index()
-    )
-    table["total_points"] = table["total_points"].round(2)
-    return table
-
-
-def grouped_totals(df: pd.DataFrame, primary: str, split_by: str) -> pd.DataFrame:
-    if split_by == "None":
-        result = (
-            df.groupby(primary, dropna=False, as_index=False)["pointValue"]
-            .sum()
-            .sort_values("pointValue", ascending=False)
-        )
-        result["split"] = "All"
-        return result.rename(columns={primary: "group"})
-
-    result = (
-        df.groupby([primary, split_by], dropna=False, as_index=False)["pointValue"]
-        .sum()
-        .sort_values("pointValue", ascending=False)
-    )
-    return result.rename(columns={primary: "group", split_by: "split"})
-
-
-def chart_frame(df: pd.DataFrame, index_col: str, column_col: str, value_col: str) -> pd.DataFrame:
-    frame = df.pivot_table(
-        index=index_col,
-        columns=column_col,
-        values=value_col,
-        aggfunc="sum",
-        fill_value=0,
-    )
-    return frame.sort_index()
-
-
-def grouped_timeseries(df: pd.DataFrame, time_grain: str, group_col: str, value_mode: str) -> pd.DataFrame:
-    freq = "D" if time_grain == "Daily" else "H"
-    prepared = df.assign(period=df["logTimestamp"].dt.floor(freq))
-    if value_mode == "Points":
-        grouped = (
-            prepared.groupby(["period", group_col], as_index=False)["pointValue"]
-            .sum()
-            .rename(columns={"pointValue": "value"})
-        )
-    else:
-        grouped = (
-            prepared.groupby(["period", group_col], as_index=False)
-            .size()
-            .rename(columns={"size": "value"})
-        )
-    return chart_frame(grouped, "period", group_col, "value")
-
-
-def grouped_timeseries_long(df: pd.DataFrame, time_grain: str, group_col: str, value_mode: str) -> pd.DataFrame:
-    freq = "D" if time_grain == "Daily" else "H"
-    prepared = df.assign(period=df["logTimestamp"].dt.floor(freq))
-    if value_mode == "Points":
-        return (
-            prepared.groupby(["period", group_col], as_index=False)["pointValue"]
-            .sum()
-            .rename(columns={"pointValue": "value", group_col: "group"})
-        )
-    return (
-        prepared.groupby(["period", group_col], as_index=False)
-        .size()
-        .rename(columns={"size": "value", group_col: "group"})
-    )
-
-
-def short_label(text: str, limit: int = 24) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1].rstrip() + "…"
-
-
-def unique_short_labels(values: list[str], limit: int = 24) -> dict[str, str]:
-    result: dict[str, str] = {}
-    used: set[str] = set()
-    for value in values:
-        candidate = short_label(value, limit)
-        if candidate not in used:
-            result[value] = candidate
-            used.add(candidate)
-            continue
-        i = 2
-        while True:
-            suffix = f" ({i})"
-            trimmed = short_label(value, max(8, limit - len(suffix))) + suffix
-            if trimmed not in used:
-                result[value] = trimmed
-                used.add(trimmed)
-                break
-            i += 1
-    return result
-
-
-def ordered_faction_columns(frame: pd.DataFrame) -> pd.DataFrame:
-    ordered = [name for name in ["Rebel", "Imperial"] if name in frame.columns]
-    ordered.extend([name for name in frame.columns if name not in ordered])
-    return frame[ordered]
-
-
-def faction_line_figure(frame: pd.DataFrame, title_y: str) -> go.Figure:
-    frame = ordered_faction_columns(frame)
-    fig = go.Figure()
-    for column in frame.columns:
-        fig.add_trace(
-            go.Scatter(
-                x=frame.index,
-                y=frame[column],
-                mode="lines",
-                name=column,
-                line={"color": FACTION_COLORS.get(column, "#9aa5b1"), "width": 3},
-            )
-        )
-    fig.update_layout(
-        height=320,
-        margin={"l": 10, "r": 10, "t": 10, "b": 10},
-        yaxis_title=title_y,
-        legend_title_text="Faction",
-    )
-    return fig
-
-
-def type_line_figure(df: pd.DataFrame, title_y: str) -> go.Figure:
-    names = df["group"].drop_duplicates().tolist()
-    label_map = unique_short_labels(names, limit=22)
-    plot_df = df.copy()
-    plot_df["display_group"] = plot_df["group"].map(label_map)
-    color_map = {
-        label_map[name]: TYPE_PALETTE[idx % len(TYPE_PALETTE)]
-        for idx, name in enumerate(names)
-    }
-    fig = px.line(
-        plot_df,
-        x="period",
-        y="value",
-        color="display_group",
-        color_discrete_map=color_map,
-        custom_data=["group"],
-        labels={"period": "", "value": title_y, "display_group": "Type"},
-    )
-    fig.update_traces(
-        mode="lines",
-        line={"width": 2.5},
-        hovertemplate="Type: %{customdata[0]}<br>Time: %{x}<br>"
-        + f"{title_y}: "
-        + "%{y:,.0f}<extra></extra>",
-    )
-    fig.update_layout(
-        height=320,
-        margin={"l": 10, "r": 10, "t": 10, "b": 10},
-        yaxis_title=title_y,
-        showlegend=False,
-    )
-    return fig
-
-
-def breakdown_bar_figure(df: pd.DataFrame, primary_dimension: str) -> go.Figure:
-    fig = px.bar(
-        df,
-        x="pointValue",
-        y="group",
-        color="split",
-        orientation="h",
-        labels={"pointValue": "Points", "group": primary_dimension.title(), "split": "Split"},
-    )
-    if set(df["split"].unique()).issubset(set(FACTION_COLORS) | {"All"}):
-        color_map = {**FACTION_COLORS, "All": "#90a4ae"}
-        for trace in fig.data:
-            trace.marker.color = color_map.get(trace.name, "#90a4ae")
-    fig.update_layout(height=350, margin={"l": 10, "r": 10, "t": 10, "b": 10}, yaxis={"categoryorder": "total ascending"})
-    return fig
-
-
-st.title("GCW Point Breakdown Explorer")
-st.caption("Interactive stats for your GCW point breakdown sheet, centered on totals and rankings by type.")
-
-uploaded_file = st.sidebar.file_uploader("Replace the bundled CSV", type=["csv"])
-if not uploaded_file and metadata and metadata.get('regional_rows') == 0:
-    st.info('No regional scoring records have been observed in this cycle yet.')
-    st.caption(f"Observed through {metadata['end_exclusive']} · UTC")
-    st.stop()
+cycles = [c for c in available_cycles(ARCHIVE) if c.get("regional_rows", 0) > 0]
+choices = {c["start"]: (f"{date(c['start'])} – {date(c['end_exclusive'])}", ARCHIVE / c["directory"] / "gcw_points.csv", c) for c in cycles}
+choices["historical"] = ("Feb 22 – Mar 27, 2026", ROOT / "data" / "gcw_points.csv", None)
+selected = st.sidebar.selectbox("GCW cycle", list(choices), format_func=lambda key: choices[key][0])
+label, path, metadata = choices[selected]
 try:
-    df = load_data(uploaded_file.getvalue() if uploaded_file else DATA_PATH.read_bytes())
-except (ValueError, OSError) as exc:
-    st.error(str(exc))
+    df = load_data(path.read_bytes())
+except (OSError, ValueError):
+    header("GCW Observatory")
+    st.error("This cycle is temporarily unavailable. Please select another cycle.")
     st.stop()
-if uploaded_file:
-    st.caption("Uploaded dataset: cycle boundaries and coverage are unverified.")
-elif metadata:
-    st.caption(f"{metadata['mode'].title()} cycle · {metadata['start']} to {metadata['end_exclusive']} (exclusive) · UTC")
-    st.caption(metadata['coverage'])
-    if metadata.get('last_regional_event'):
-        st.caption(f"Last observed regional score: {metadata['last_regional_event']}")
-else:
-    st.caption("Historical bundled CSV · cycle boundaries and original timezone are unverified; timestamps displayed as UTC.")
-st.caption("Regional score events are not unique activities or players. Source IDs may include game objects. Regional totals do not reconstruct final control scores.")
+df["planet"] = df.planet.str.replace("_", " ").str.title()
+type_names = {
+    "Factional base control": "Base control", "factional presence": "Factional presence",
+    "delivering supplies (PvE)": "Supply deliveries (PvE)", "a PvP kill": "PvP kills",
+    "participating in a PvP Space Battle": "PvP space participation", "winning a PvP Space Battle": "PvP space victories",
+    "participating in a PvE Space Battle": "PvE space participation", "winning a PvE Space Battle": "PvE space victories",
+    "participating in a Flashpoint": "Flashpoint participation", "winning a Flashpoint": "Flashpoint victories",
+    "intercepting supplies": "Supply interceptions", "generating supplies": "Supply production",
+    "building up an Invasion": "Invasion preparation", "participating in an Invasion": "Invasion participation",
+    "winning an Invasion": "Invasion victories", "a Restuss PvE mission completion": "Restuss PvE missions",
+    "a PvE Duty mission wave": "PvE duty waves", "a PvE Duty mission completion": "PvE duty missions",
+    "a PvP Duty mission wave": "PvP duty waves", "a PvP Duty mission completion": "PvP duty missions",
+    "the destruction of a Faction Base": "Base destruction", "the destruction of a PvP Faction Base": "PvP base destruction",
+    "the defense of a Faction Base": "Base defense", "the defense of a PvP Faction Base": "PvP base defense",
+    "an Imperial Crackdown": "Imperial Crackdowns", "a Rebel Uprising": "Rebel Uprisings",
+}
+df["type"] = df.type.replace(type_names)
+minimum, maximum = df.logTimestamp.min(), df.logTimestamp.max()
 
-min_time = df["logTimestamp"].min()
-max_time = df["logTimestamp"].max()
+header("GCW Observatory")
+st.subheader(label)
+st.caption(f"Available scoring: {date(minimum)} – {date(maximum)} · All times UTC")
 
-st.sidebar.header("Filters")
-factions = st.sidebar.multiselect(
-    "Faction", options=sorted(df["faction"].dropna().unique()), default=sorted(df["faction"].dropna().unique())
-)
-planets = st.sidebar.multiselect(
-    "Planet", options=sorted(df["planet"].dropna().unique()), default=sorted(df["planet"].dropna().unique())
-)
-reasons = st.sidebar.multiselect(
-    "Type", options=sorted(df["type"].dropna().unique()), default=sorted(df["type"].dropna().unique())
-)
-date_range = st.sidebar.date_input(
-    "Date range",
-    key="date_range_" + selected,
-    value=(min_time.date(), max_time.date()),
-    min_value=min_time.date(),
-    max_value=max_time.date(),
-)
+def reset_filters():
+    for field in ["factions", "planets", "types", "dates"]:
+        st.session_state.pop(f"{field}_{selected}", None)
 
-if isinstance(date_range, tuple) and len(date_range) == 2:
-    start_date, end_date = date_range
-else:
-    start_date = end_date = min_time.date()
+with st.sidebar.expander("Refine results"):
+    st.caption("Leave a selection empty to include everything.")
+    factions = st.multiselect("Faction", sorted(df.faction.unique()), key=f"factions_{selected}")
+    planets = st.multiselect("Planet", sorted(df.planet.unique()), key=f"planets_{selected}")
+    types = st.multiselect("Scoring type", sorted(df.type.unique()), key=f"types_{selected}")
+    dates = st.date_input("Dates", (minimum.date(), maximum.date()), min_value=minimum.date(), max_value=maximum.date(), key=f"dates_{selected}")
+    st.button("Reset filters", width="stretch", on_click=reset_filters)
 
-filtered = df[
-    df["faction"].isin(factions)
-    & df["planet"].isin(planets)
-    & df["type"].isin(reasons)
-    & df["logTimestamp"].dt.date.between(start_date, end_date)
-].copy()
-
+filtered = df.copy()
+for field, values in [("faction", factions), ("planet", planets), ("type", types)]:
+    if values:
+        filtered = filtered[filtered[field].isin(values)]
+if len(dates) != 2:
+    st.info("Choose an end date to complete the date range.")
+    st.stop()
+filtered = filtered[filtered.logTimestamp.dt.date.between(*dates)]
+active = bool(factions or planets or types or dates != (minimum.date(), maximum.date()))
+if active:
+    st.caption(f"Filtered view · {len(filtered):,} of {len(df):,} scoring records")
 if filtered.empty:
-    st.warning("No rows match the current filters.")
+    st.info("No scoring matches these filters. Broaden your selection or reset the filters.")
     st.stop()
 
-faction_totals = filtered.groupby("faction")["pointValue"].sum().sort_values(ascending=False)
-type_totals = filtered.groupby("type")["pointValue"].sum().sort_values(ascending=False)
+profile = filtered.assign(earned=filtered.pointValue.clip(lower=0), deductions=filtered.pointValue.clip(upper=0))
+faction = profile.groupby("faction").agg(earned=("earned", "sum"), deductions=("deductions", "sum"), net=("pointValue", "sum"), records=("pointValue", "size"))
+with st.container(key="headline"):
+    cards = st.columns(4)
+    for col, name in zip(cards[:2], ["Rebel", "Imperial"]):
+        col.metric(f"{name} net points", f"{faction.loc[name, 'net'] if name in faction.index else 0:,.0f}")
+    cards[2].metric("Scoring records", f"{len(filtered):,}")
+    cards[3].metric("Active planets", str(filtered.planet.nunique()))
+st.caption("Net points include gains and deductions. They are not final planetary control scores.")
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Activities", f"{len(filtered):,}")
-col2.metric("Total points", f"{filtered['pointValue'].sum():,.1f}")
-col3.metric("Top type", type_totals.index[0] if not type_totals.empty else "No data")
-col4.metric("Faction lead", metric_delta_text(faction_totals))
+overview, scoring, worlds, records = st.tabs(["Overview", "Scoring", "Planets", "Records"])
+with overview:
+    st.subheader("Faction momentum")
+    trajectory = st.radio("Display", ["Cumulative points", "Points per day", "Records per day"], horizontal=True)
+    daily = grouped_timeseries(filtered, "Daily", "faction", "Activities" if trajectory == "Records per day" else "Points")
+    daily = daily.reindex(pd.date_range(daily.index.min(), daily.index.max(), freq="D"))
+    if trajectory == "Cumulative points":
+        daily = daily.fillna(0).cumsum()
+    chart(faction_line_figure(daily, "Records" if trajectory == "Records per day" else "Net points"))
+    st.caption("Cumulative values start at the beginning of your selected date range. Gaps in daily views indicate no available records.")
+    left,right = st.columns(2)
+    with left:
+        st.subheader("What drove the scoring")
+        totals = grouped_totals(filtered, "type", "faction")
+        names = filtered.groupby("type").pointValue.sum().nlargest(8).index
+        chart(breakdown_bar_figure(totals[totals.group.isin(names)], "Scoring type"), 400)
+    with right:
+        st.subheader("Faction contributions")
+        summary = faction.reset_index().rename(columns={"faction":"Faction", "earned":"Points gained", "deductions":"Points deducted", "net":"Net points", "records":"Records"})
+        table(summary)
+        st.caption("Each record is a scoring adjustment; one activity can produce multiple records.")
+        st.subheader("Leading scoring type")
+        leading = filtered.groupby("type").pointValue.sum().sort_values(ascending=False)
+        st.write(f"**{leading.index[0]}**")
+        st.caption(f"{leading.iloc[0]:,.0f} net points in this selection")
 
-primary_dimension = st.selectbox(
-    "Show totals by",
-    options=["type", "planet", "faction"],
-    index=0,
-)
-split_dimension = st.selectbox(
-    "Split totals by",
-    options=["faction", "planet", "type", "None"],
-    index=0,
-)
-time_grain = st.radio("Time grain", options=["Daily", "Hourly"], horizontal=True)
-top_type_count = st.slider("Top types to chart over time", min_value=3, max_value=12, value=8)
+with scoring:
+    st.subheader("How points were scored")
+    left,right = st.columns(2)
+    primary = left.selectbox("Group by", ["Scoring type", "Planet", "Faction"])
+    split = right.selectbox("Compare", ["Faction", "Planet", "Scoring type", "None"])
+    dimensions = {"Scoring type":"type", "Planet":"planet", "Faction":"faction", "None":"None"}
+    primary, split = dimensions[primary], dimensions[split]
+    totals = grouped_totals(filtered, primary, split if split != primary else "None")
+    chart(breakdown_bar_figure(totals, primary), max(380, min(900, filtered[primary].nunique()*32)))
+    st.caption("Deductions remain visible below zero.")
+    pivot = filtered.pivot_table(index="type", columns="faction", values="pointValue", aggfunc="sum", fill_value=0)
+    pivot["Net points"] = pivot.sum(axis=1)
+    pivot["Records"] = filtered.groupby("type").size()
+    table(pivot.sort_values("Net points", ascending=False).reset_index().rename(columns={"type":"Scoring type"}))
+    st.subheader("Scoring over time")
+    a,b,c = st.columns(3)
+    grain = a.selectbox("Interval", ["Daily", "Hourly"])
+    measure = b.selectbox("Measure", ["Net points", "Records"])
+    series = c.selectbox("Series", ["Scoring type", "Faction"])
+    count = st.slider("Scoring types", 3, 12, 6, disabled=series == "Faction")
+    top = filtered.groupby("type").pointValue.sum().nlargest(count).index
+    series_field = "type" if series == "Scoring type" else "faction"
+    subset = filtered[filtered.type.isin(top)] if series_field == "type" else filtered
+    timeline = grouped_timeseries(subset, grain, series_field, "Points" if measure == "Net points" else "Activities")
+    timeline = timeline.reindex(pd.date_range(timeline.index.min(), timeline.index.max(), freq="D" if grain == "Daily" else "h"))
+    fig = px.line(timeline, labels={"value":measure, "index":"", "variable":series}, color_discrete_sequence=px.colors.qualitative.Safe,
+        color_discrete_map=FACTION_COLORS if series_field == "faction" else None)
+    chart(fig, 430)
+    with st.expander("Scoring bonuses"):
+        found = False
+        for field, title in [("planetModifier", "Planet multiplier"), ("softCapMultiplier", "Soft-cap multiplier")]:
+            if field in filtered:
+                values = pd.to_numeric(filtered[field], errors="coerce")
+                if values.notna().any():
+                    found = True
+                    st.write(title)
+                    table(filtered.assign(value=values).groupby("faction").value.agg(["count", "mean", "min", "max"]).reset_index().rename(columns={"faction":"Faction", "count":"Records", "mean":"Average", "min":"Minimum", "max":"Maximum"}))
+        st.caption("Averages weight each scoring record equally; unavailable values are excluded." if found else "Bonus details are not available for this period.")
 
-if primary_dimension == split_dimension:
-    split_dimension = "None"
+with worlds:
+    st.subheader("The planetary picture")
+    chart(breakdown_bar_figure(grouped_totals(filtered, "planet", "faction"), "Planet"), 460)
+    planets_table = filtered.pivot_table(index="planet", columns="faction", values="pointValue", aggfunc="sum", fill_value=0)
+    planets_table["Net points"] = planets_table.sum(axis=1)
+    planets_table["Records"] = filtered.groupby("planet").size()
+    table(planets_table.sort_values("Net points", ascending=False).reset_index().rename(columns={"planet":"Planet"}))
 
-breakdown = grouped_totals(filtered, primary_dimension, split_dimension)
-top_types = leaderboard_table(filtered, "type")
-top_types_by_activity = (
-    filtered.groupby("type", dropna=False)
-    .agg(activities=("pointValue", "size"), total_points=("pointValue", "sum"))
-    .sort_values(["activities", "total_points"], ascending=False)
-    .head(15)
-    .reset_index()
-)
-top_planets_by_activity = (
-    filtered.groupby("planet", dropna=False)
-    .agg(activities=("pointValue", "size"), total_points=("pointValue", "sum"))
-    .sort_values(["activities", "total_points"], ascending=False)
-    .head(15)
-    .reset_index()
-)
-top_sources = leaderboard_table(filtered, "source", top_n=25)
+with records:
+    st.subheader("Explore scoring records")
+    st.caption("Source IDs can represent characters or game objects. They are not a count or ranking of players.")
+    source = st.text_input("Find a source ID", placeholder="Enter an exact ID")
+    rows = filtered[filtered.source.eq(source.strip())] if source.strip() else filtered
+    display = rows.sort_values("logTimestamp", ascending=False)[["logTimestamp", "faction", "planet", "type", "pointValue", "source"]].rename(columns={"logTimestamp":"Time (UTC)", "faction":"Faction", "planet":"Planet", "type":"Scoring type", "pointValue":"Points", "source":"Source ID"})
+    if display.empty:
+        st.info("No records for this source ID in the current selection.")
+    else:
+        st.caption(f"{len(display):,} matching records · newest first")
+        table(display)
+        st.download_button("Download selected records", display.to_csv(index=False).encode(), file_name=f"gcw-{minimum.date()}-records.csv", mime="text/csv")
+    with st.expander("Highest-value records and source totals"):
+        table(display.sort_values("Points", ascending=False).head(25))
+        table(rows.groupby("source").agg(Records=("pointValue", "size"), Points=("pointValue", "sum")).sort_values("Points", ascending=False).head(25).reset_index().rename(columns={"source":"Source ID"}))
 
-faction_points_chart = grouped_timeseries(filtered, time_grain, "faction", "Points")
-faction_activity_chart = grouped_timeseries(filtered, time_grain, "faction", "Activities")
-top_type_names = top_types["type"].head(top_type_count).tolist()
-type_slice = filtered[filtered["type"].isin(top_type_names)].copy()
-type_points_chart = grouped_timeseries_long(type_slice, time_grain, "type", "Points")
-type_activity_chart = grouped_timeseries_long(type_slice, time_grain, "type", "Activities")
-type_label_map = unique_short_labels(top_type_names, limit=22)
-type_legend = pd.DataFrame(
-    {
-        "type": top_type_names,
-        "display": [type_label_map[name] for name in top_type_names],
-    }
-)
-
-left, right = st.columns(2)
-
-with left:
-    st.subheader("Points over time by faction")
-    st.plotly_chart(faction_line_figure(faction_points_chart, "Points"), use_container_width=True)
-
-with right:
-    st.subheader(f"Totals by {primary_dimension}")
-    breakdown_chart = chart_frame(breakdown, "group", "split", "pointValue")
-    breakdown_chart["Total"] = breakdown_chart.sum(axis=1)
-    breakdown_chart = breakdown_chart.sort_values("Total", ascending=False).drop(columns="Total").head(20)
-    breakdown_plot_df = breakdown_chart.reset_index().melt(id_vars="group", var_name="split", value_name="pointValue")
-    breakdown_plot_df = breakdown_plot_df[breakdown_plot_df["pointValue"] > 0]
-    st.plotly_chart(breakdown_bar_figure(breakdown_plot_df, primary_dimension), use_container_width=True)
-
-time_left, time_right = st.columns(2)
-
-with time_left:
-    st.subheader("Points over time by type")
-    st.plotly_chart(type_line_figure(type_points_chart, "Points"), use_container_width=True)
-    with st.expander("Type labels in chart", expanded=False):
-        st.dataframe(type_legend, use_container_width=True, hide_index=True)
-
-with time_right:
-    st.subheader("Activities over time by faction")
-    st.plotly_chart(faction_line_figure(faction_activity_chart, "Activities"), use_container_width=True)
-
-activity_left, activity_right = st.columns(2)
-
-with activity_left:
-    st.subheader("Activities over time by type")
-    st.plotly_chart(type_line_figure(type_activity_chart, "Activities"), use_container_width=True)
-
-with activity_right:
-    st.subheader("Top types by activities")
-    st.dataframe(top_types_by_activity, use_container_width=True, hide_index=True)
-
-table_left, table_right = st.columns(2)
-
-with table_left:
-    st.subheader("Top types by total points")
-    st.dataframe(top_types, use_container_width=True, hide_index=True)
-
-with table_right:
-    st.subheader("Most active planets")
-    st.dataframe(top_planets_by_activity, use_container_width=True, hide_index=True)
-
-st.subheader("Type breakdown pivot")
-type_pivot = pd.pivot_table(
-    filtered,
-    index="type",
-    columns="faction",
-    values="pointValue",
-    aggfunc="sum",
-    fill_value=0,
-)
-type_pivot["Total"] = type_pivot.sum(axis=1)
-type_pivot = type_pivot.sort_values("Total", ascending=False)
-st.dataframe(type_pivot.round(2), use_container_width=True)
-
-st.subheader("Highest-value source events")
-top_source_events = (
-    filtered.sort_values(["pointValue", "logTimestamp"], ascending=[False, False])[
-        ["logTimestamp", "faction", "planet", "type", "pointValue", "source"]
-    ]
-    .head(25)
-    .reset_index(drop=True)
-)
-st.dataframe(top_source_events, use_container_width=True, hide_index=True)
-
-st.subheader("Raw data")
-display_df = filtered.sort_values("logTimestamp", ascending=False).copy()
-display_df = display_df[["logTimestamp", "faction", "planet", "type", "pointValue", "source"]]
-st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-st.subheader("Top sources by total points")
-st.dataframe(top_sources, use_container_width=True, hide_index=True)
-
-
-st.subheader("Faction contribution profile")
-profile = filtered.assign(positive=filtered.pointValue.clip(lower=0), deductions=filtered.pointValue.clip(upper=0))
-summary = profile.groupby("faction").agg(events=("pointValue", "size"), positive_points=("positive", "sum"), deductions=("deductions", "sum"), net_points=("pointValue", "sum"))
-st.dataframe(summary, use_container_width=True)
-for column, label in [("planetModifier", "Planet bonus multiplier"), ("softCapMultiplier", "Soft-cap multiplier")]:
-    if column in filtered:
-        values = pd.to_numeric(filtered[column], errors="coerce")
-        if values.notna().any():
-            st.write(label)
-            st.dataframe(filtered.assign(value=values).groupby("faction").value.agg(["count", "mean", "min", "max"]), use_container_width=True)
-            st.caption("Event-weighted statistics for records with this field; missing historical values are excluded.")
+st.divider()
+with st.expander("About these numbers"):
+    st.write("Explore three periods of GCW scoring. Figures reflect the available records, so periods with different coverage should not be compared as complete cycle totals.")
+    if metadata is None:
+        st.write("This early period covers February 22–March 27, 2026. Full cycle boundaries and the original timezone are not confirmed; times are presented as UTC.")
+    else:
+        st.write(f"Cycle dates: {label}. Available scoring runs from {date(minimum)} through {date(maximum)}; coverage across the full cycle is incomplete.")
+    st.write("GCW points include gains and deductions. They do not establish final control, personal rewards, or a cycle winner. Latest Shatterpoint uses its own event dates and scoring scale.")
+st.caption("SWG Restoration · GCW Observatory")
