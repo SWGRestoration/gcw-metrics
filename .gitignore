@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+elk.json
+.venv/
+__pycache__/
+*.pyc
+data/generated/
+private-logs/
+
+.private-export-tools/

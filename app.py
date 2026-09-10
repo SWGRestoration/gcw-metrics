@@ -1,4 +1,8 @@
 from pathlib import Path
+import json
+import os
+from cycles import available_cycles, cycle_label
+from event_view import show_latest_event
 
 import pandas as pd
 import plotly.express as px
@@ -9,6 +13,27 @@ import streamlit as st
 st.set_page_config(page_title="GCW Point Breakdown Explorer", layout="wide")
 
 DATA_PATH = Path(__file__).parent / "data" / "gcw_points.csv"
+DEFAULT_DATA = DATA_PATH.parent / "generated"
+if not DEFAULT_DATA.exists():
+    DEFAULT_DATA = DATA_PATH.parent / "published"
+GENERATED = Path(os.environ.get("GCW_DATA_DIR", str(DEFAULT_DATA)))
+view = st.sidebar.radio('View', ['Regional cycles', 'Latest Shatterpoint'])
+if view == 'Latest Shatterpoint':
+    show_latest_event(GENERATED / 'latest_event.json')
+    st.stop()
+metadata = None
+crisis_path = None
+cycles = available_cycles(GENERATED)
+options = [c['start'] for c in cycles] + ['historical']
+labels = {c['start']: cycle_label(c) for c in cycles}
+labels['historical'] = 'Original CSV · Unverified cycle window'
+default = next((i for i, c in enumerate(cycles) if c['mode'] == 'completed'), 0)
+selected = st.sidebar.selectbox('Cycle', options, index=default, format_func=lambda value: labels[value])
+if selected != 'historical':
+    metadata = next(c for c in cycles if c['start'] == selected)
+    run_path = GENERATED / metadata['directory']
+    DATA_PATH = run_path / 'gcw_points.csv'
+    crisis_path = run_path / 'crisis.csv'
 FACTION_COLORS = {
     "Rebel": "#e53935",
     "Imperial": "#1e88e5",
@@ -41,15 +66,19 @@ st.markdown(
 
 
 @st.cache_data(show_spinner=False)
-def load_data(csv_bytes: bytes | None = None) -> pd.DataFrame:
-    if csv_bytes is None:
-        df = pd.read_csv(DATA_PATH, dtype={"source": "string", "reason": "string"})
-    else:
-        df = pd.read_csv(pd.io.common.BytesIO(csv_bytes), dtype={"source": "string", "reason": "string"})
-
-    df["logTimestamp"] = pd.to_datetime(
-        df["logTimestamp"], format="%b %d, %Y @ %H:%M:%S.%f", errors="coerce"
-    )
+def load_data(csv_bytes: bytes) -> pd.DataFrame:
+    df = pd.read_csv(pd.io.common.BytesIO(csv_bytes), dtype={"source": "string", "reason": "string"})
+    required = ["logTimestamp", "faction", "planet", "regionName", "reason", "pointValue", "multiplier", "source"]
+    if not set(required).issubset(df.columns):
+        raise ValueError("CSV is missing required scoring columns")
+    df = df[[c for c in required + ["planetModifier", "softCapMultiplier"] if c in df.columns]].copy()
+    raw_time = df["logTimestamp"]
+    df["logTimestamp"] = pd.to_datetime(raw_time, format="%b %d, %Y @ %H:%M:%S.%f", errors="coerce", utc=True)
+    missing = df["logTimestamp"].isna()
+    df.loc[missing, "logTimestamp"] = pd.to_datetime(raw_time[missing], format="ISO8601", errors="coerce", utc=True)
+    if df["logTimestamp"].isna().any() or df.empty:
+        raise ValueError("CSV has invalid timestamps or no scoring rows")
+    df["source"] = df["source"].where(df["source"].str.fullmatch(r"-?[0-9]+", na=False), "unknown")
     df["pointValue"] = pd.to_numeric(df["pointValue"], errors="coerce").fillna(0)
     df["planet"] = df["planet"].fillna("unknown").replace({"null": "unknown"})
     df["faction"] = df["faction"].fillna("unknown")
@@ -255,7 +284,25 @@ st.title("GCW Point Breakdown Explorer")
 st.caption("Interactive stats for your GCW point breakdown sheet, centered on totals and rankings by type.")
 
 uploaded_file = st.sidebar.file_uploader("Replace the bundled CSV", type=["csv"])
-df = load_data(uploaded_file.getvalue() if uploaded_file else None)
+if not uploaded_file and metadata and metadata.get('regional_rows') == 0:
+    st.info('No regional scoring records have been observed in this cycle yet.')
+    st.caption(f"Observed through {metadata['end_exclusive']} · UTC")
+    st.stop()
+try:
+    df = load_data(uploaded_file.getvalue() if uploaded_file else DATA_PATH.read_bytes())
+except (ValueError, OSError) as exc:
+    st.error(str(exc))
+    st.stop()
+if uploaded_file:
+    st.caption("Uploaded dataset: cycle boundaries and coverage are unverified.")
+elif metadata:
+    st.caption(f"{metadata['mode'].title()} cycle · {metadata['start']} to {metadata['end_exclusive']} (exclusive) · UTC")
+    st.caption(metadata['coverage'])
+    if metadata.get('last_regional_event'):
+        st.caption(f"Last observed regional score: {metadata['last_regional_event']}")
+else:
+    st.caption("Historical bundled CSV · cycle boundaries and original timezone are unverified; timestamps displayed as UTC.")
+st.caption("Regional score events are not unique activities or players. Source IDs may include game objects. Regional totals do not reconstruct final control scores.")
 
 min_time = df["logTimestamp"].min()
 max_time = df["logTimestamp"].max()
@@ -272,6 +319,7 @@ reasons = st.sidebar.multiselect(
 )
 date_range = st.sidebar.date_input(
     "Date range",
+    key="date_range_" + selected,
     value=(min_time.date(), max_time.date()),
     min_value=min_time.date(),
     max_value=max_time.date(),
@@ -427,3 +475,16 @@ st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 st.subheader("Top sources by total points")
 st.dataframe(top_sources, use_container_width=True, hide_index=True)
+
+
+st.subheader("Faction contribution profile")
+profile = filtered.assign(positive=filtered.pointValue.clip(lower=0), deductions=filtered.pointValue.clip(upper=0))
+summary = profile.groupby("faction").agg(events=("pointValue", "size"), positive_points=("positive", "sum"), deductions=("deductions", "sum"), net_points=("pointValue", "sum"))
+st.dataframe(summary, use_container_width=True)
+for column, label in [("planetModifier", "Planet bonus multiplier"), ("softCapMultiplier", "Soft-cap multiplier")]:
+    if column in filtered:
+        values = pd.to_numeric(filtered[column], errors="coerce")
+        if values.notna().any():
+            st.write(label)
+            st.dataframe(filtered.assign(value=values).groupby("faction").value.agg(["count", "mean", "min", "max"]), use_container_width=True)
+            st.caption("Event-weighted statistics for records with this field; missing historical values are excluded.")
