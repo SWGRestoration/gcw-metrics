@@ -32,14 +32,11 @@ class AppTests(unittest.TestCase):
         self.assertTrue(any("Talus" in h.value for h in at.subheader))
         self.assertEqual(at.metric[0].value, "2,576")
 
-    def test_filters_reset_and_source_search(self):
+    def test_filters_reset(self):
         at = self.start()
         at.sidebar.multiselect[0].set_value(["Rebel"]).run(timeout=60)
         self.healthy(at)
         self.assertEqual(at.metric[1].value, "0")
-        at.text_input[0].set_value("no-such-source").run(timeout=60)
-        self.healthy(at)
-        self.assertTrue(any("No records for this source" in x.value for x in at.info))
         at.sidebar.button[0].click().run(timeout=60)
         self.healthy(at)
         self.assertEqual(at.metric[1].value, "3,545,186")

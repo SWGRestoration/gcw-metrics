@@ -165,15 +165,11 @@ with worlds:
 with records:
     st.subheader("Explore scoring records")
     st.caption("Source IDs can represent characters or game objects. They are not a count or ranking of players.")
-    source = st.text_input("Find a source ID", placeholder="Enter an exact ID")
-    rows = filtered[filtered.source.eq(source.strip())] if source.strip() else filtered
+    rows = filtered
     display = rows.sort_values("logTimestamp", ascending=False)[["logTimestamp", "faction", "planet", "type", "pointValue", "source"]].rename(columns={"logTimestamp":"Time (UTC)", "faction":"Faction", "planet":"Planet", "type":"Scoring type", "pointValue":"Points", "source":"Source ID"})
-    if display.empty:
-        st.info("No records for this source ID in the current selection.")
-    else:
-        st.caption(f"{len(display):,} matching records · newest first")
-        table(display)
-        st.download_button("Download selected records", display.to_csv(index=False).encode(), file_name=f"gcw-{minimum.date()}-records.csv", mime="text/csv")
+    st.caption(f"{len(display):,} records · newest first")
+    table(display)
+    st.download_button("Download selected records", display.to_csv(index=False).encode(), file_name=f"gcw-{minimum.date()}-records.csv", mime="text/csv")
     with st.expander("Highest-value records and source totals"):
         table(display.sort_values("Points", ascending=False).head(25))
         table(rows.groupby("source").agg(Records=("pointValue", "size"), Points=("pointValue", "sum")).sort_values("Points", ascending=False).head(25).reset_index().rename(columns={"source":"Source ID"}))

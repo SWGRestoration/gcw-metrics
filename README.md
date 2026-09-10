@@ -1,8 +1,8 @@
 # GCW Observatory
 
 A public dashboard for GCW scoring across three periods.
-Overview, Scoring, Planets and Records views support faction and date filters,
-source-ID search and downloads of selected records. Empty cycles are hidden.
+Overview, Scoring, Planets and Records views support faction and date filters
+and downloads of selected records. Empty cycles are hidden.
 A separate **Latest Shatterpoint** view shows the latest event's recorded Crisis
 movement using its own event dates. Older event mechanics are not compared.
 
