@@ -95536,6 +95536,9 @@ logTimestamp,faction,planet,regionName,reason,pointValue,multiplier,source,plane
 2026-08-09T18:59:56+00:00,Rebel,dantooine,gcw_region_dantooine_11,Factional base control,25,2.0,215453686008,1.4,0.4458008
 2026-08-09T18:59:58+00:00,Rebel,naboo,gcw_region_naboo_5,Factional base control,50,1.3,216072778689,2.4,0.8135713
 2026-08-09T18:59:59+00:00,Rebel,corellia,gcw_region_corellia_11,Factional base control,31,1.3,213900638497,1.2,1.0
+2026-08-09T19:00:03+00:00,Rebel,dantooine,gcw_planet_dantooine,a Rebel Uprising,200000,1.0,null,1.0,1.0
+2026-08-09T19:00:03+00:00,Rebel,lok,gcw_planet_lok,an Imperial Crackdown,-100000,1.0,null,1.0,1.0
+2026-08-09T19:00:03+00:00,Rebel,talus,gcw_planet_talus,an Imperial Crackdown,-100000,1.0,null,1.0,1.0
 2026-08-09T19:00:08+00:00,Rebel,lok,gcw_region_lok_1,Factional base control,48,2.0,198093304784,1.2,1.0
 2026-08-09T19:00:09+00:00,Imperial,talus,gcw_region_talus_5,Factional base control,33,1.0,217162150322,1.6700001,1.0
 2026-08-09T19:00:10+00:00,Rebel,rori,gcw_region_rori_5,Factional base control,36,1.3,191073153487,1.4,1.0
@@ -120910,6 +120913,9 @@ logTimestamp,faction,planet,regionName,reason,pointValue,multiplier,source,plane
 2026-08-16T18:59:07+00:00,Rebel,lok,gcw_region_lok_5,Factional base control,24,1.6,218069590539,1.2,0.629834
 2026-08-16T18:59:08+00:00,Rebel,rori,gcw_region_rori_7,Factional base control,19,1.0,198409125407,1.4,0.6644695
 2026-08-16T18:59:30+00:00,Rebel,rori,gcw_region_rori_7,Factional base control,45,2.4,213474078115,1.4,0.66432315
+2026-08-16T19:00:04+00:00,Rebel,lok,gcw_planet_lok,a Rebel Uprising,200000,1.0,null,1.0,1.0
+2026-08-16T19:00:04+00:00,Rebel,rori,gcw_planet_rori,an Imperial Crackdown,-100000,1.0,null,1.0,1.0
+2026-08-16T19:00:04+00:00,Rebel,talus,gcw_planet_talus,an Imperial Crackdown,-100000,1.0,null,1.0,1.0
 2026-08-16T19:00:13+00:00,Imperial,rori,gcw_region_rori_2,factional presence,12,1.0,200115533810,1.17,1.0
 2026-08-16T19:00:32+00:00,Imperial,talus,gcw_region_talus_14,factional presence,16,1.0,186678385270,1.61,1.0
 2026-08-16T19:01:46+00:00,Rebel,rori,gcw_region_rori_7,factional presence,17,1.1807662,178446518901,1.4,1.0
