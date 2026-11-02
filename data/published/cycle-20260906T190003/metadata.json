@@ -1,12 +1,13 @@
 {
   "start": "2026-09-06T19:00:03+00:00",
-  "end_exclusive": "2026-09-10T03:38:40.926851+00:00",
-  "mode": "current",
-  "regional_rows": 0,
+  "end_exclusive": "2026-10-25T06:05:03+00:00",
+  "mode": "completed",
+  "boundary": "Cycle reset snapshot",
+  "regional_rows": 258393,
   "crisis_rows": 0,
-  "first_regional_event": null,
-  "last_regional_event": null,
-  "generated_at": "2026-09-10T03:45:09.642581+00:00",
-  "coverage": "Observed scoring records only; complete interval coverage is not verified.",
-  "sha256": "5fe5d9be7e5987c5359fcd238e041bae55f1063072d0ce4afa35dd7bf767acf3"
+  "first_regional_event": "2026-09-13T18:57:30+00:00",
+  "last_regional_event": "2026-10-18T18:59:49+00:00",
+  "generated_at": "2026-11-02T02:55:01.160044+00:00",
+  "coverage": "Observed logs only; retention and production deployment must be verified.",
+  "sha256": "24bb048be2dfafb641fad0a61778c736efe34b81a3b36cb5c8240a42e32b2364"
 }

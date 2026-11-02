@@ -17,20 +17,20 @@ class AppTests(unittest.TestCase):
         self.assertFalse(at.exception)
         self.assertFalse(at.error)
 
-    def test_three_periods_and_latest_event(self):
+    def test_periods_and_latest_event(self):
         at = self.start()
         self.healthy(at)
-        self.assertEqual(len(at.sidebar.selectbox[0].options), 3)
+        self.assertEqual(len(at.sidebar.selectbox[0].options), 4)
         self.assertEqual(len(at.get("file_uploader")), 0)
-        self.assertEqual([m.value for m in at.metric][:3], ["6,260,446", "3,545,186", "141,871"])
-        for cycle, count in [("2026-04-12T19:00:03+00:00", "136,459"), ("historical", "27,367"), ("2026-07-19T19:00:03+00:00", "141,871")]:
+        self.assertEqual([m.value for m in at.metric][:3], ["6,370,523", "3,848,526", "258,393"])
+        for cycle, count in [("2026-04-12T19:00:03+00:00", "136,459"), ("historical", "27,367"), ("2026-07-19T19:00:03+00:00", "141,871"), ("2026-09-06T19:00:03+00:00", "258,393")]:
             at.sidebar.selectbox[0].select(cycle).run(timeout=60)
             self.healthy(at)
             self.assertEqual(at.metric[2].value, count)
         at.sidebar.radio[0].set_value("Latest Shatterpoint").run(timeout=60)
         self.healthy(at)
-        self.assertTrue(any("Talus" in h.value for h in at.subheader))
-        self.assertEqual(at.metric[0].value, "2,576")
+        self.assertTrue(any("Naboo" in h.value for h in at.subheader))
+        self.assertEqual(at.metric[0].value, "1,383")
 
     def test_filters_reset(self):
         at = self.start()
@@ -39,7 +39,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(at.metric[1].value, "0")
         at.sidebar.button[0].click().run(timeout=60)
         self.healthy(at)
-        self.assertEqual(at.metric[1].value, "3,545,186")
+        self.assertEqual(at.metric[1].value, "3,848,526")
         at.sidebar.multiselect[1].set_value(["Talus"]).run(timeout=60)
         self.healthy(at)
         self.assertEqual(at.metric[3].value, "1")

@@ -1,6 +1,6 @@
 # GCW Observatory
 
-A public dashboard for GCW scoring across three periods.
+A public dashboard for GCW scoring across four periods.
 Overview, Scoring, Planets and Records views support faction and date filters
 and downloads of selected records. Empty cycles are hidden.
 A separate **Latest Shatterpoint** view shows the latest event's recorded Crisis
@@ -18,7 +18,7 @@ streamlit run app.py
 ```
 
 The repository includes prepared datasets under `data/published/`. No credentials
-or access to game infrastructure are needed. Three populated scoring periods are available from the cycle selector.
+or access to game infrastructure are needed. Four populated scoring periods are available from the cycle selector.
 `GCW_DATA_DIR` can point to another prepared archive. The public bundle is used by default.
 
 ## Reading the metrics
