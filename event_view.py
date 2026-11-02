@@ -5,14 +5,18 @@ import streamlit as st
 from design import header, chart, table, date, FACTION_COLORS
 
 
-def show_latest_event(path):
-    header("Latest Shatterpoint")
-    if not path.exists():
+def event_title(event):
+    return f"{event['event_type'].removeprefix('shatterpoint_').replace('_', ' ').title()} · {event['planet'].title()}"
+
+
+def show_shatterpoints(directory):
+    header("Shatterpoints")
+    events = sorted((json.loads(p.read_text()) for p in directory.glob("event-*.json")), key=lambda e: e["start"], reverse=True)
+    if not events:
         st.info("Event results will appear here when available.")
         return
-    event = json.loads(path.read_text())
-    title = event["event_type"].removeprefix("shatterpoint_").replace("_", " ").title()
-    st.subheader(f"{title} · {event['planet'].title()}")
+    event = st.sidebar.selectbox("Shatterpoint", events, format_func=lambda e: f"{date(e['start'])} · {event_title(e)}")
+    st.subheader(event_title(event))
     st.caption(f"{date(event['start'])} – {date(event['end']) if event['end'] else 'Ongoing'} · All times UTC")
     df = pd.DataFrame(event["results"])
     if df.empty:
@@ -42,7 +46,7 @@ def show_latest_event(path):
     with detail:
         display = df[["logTimestamp", "Activity", "requestedMovement", "appliedMovement", "previousImperial", "newImperial", "signedImperialMovement"]].rename(columns={"logTimestamp":"Time (UTC)", "requestedMovement":"Requested movement", "appliedMovement":"Applied movement", "previousImperial":"Control before", "newImperial":"Control after", "signedImperialMovement":"Net toward Imperial"})
         table(display.sort_values("Time (UTC)", ascending=False))
-        st.download_button("Download event results", display.to_csv(index=False).encode(), "gcw-latest-shatterpoint.csv", "text/csv")
+        st.download_button("Download event results", display.to_csv(index=False).encode(), f"gcw-shatterpoint-{event['start'][:10]}-{event['planet']}.csv", "text/csv")
     with st.expander("Reading this event"):
         st.write("Each result is a scoring change, not necessarily a unique battle or participant. Positive net movement favors Imperial; negative movement favors Rebel. Requested movement is the attempted change; applied movement is the amount applied.")
-        st.write("These figures describe the available results, not a definitive winner. Only the latest Shatterpoint is shown because mechanics vary between events.")
+        st.write("These figures describe the available results, not a definitive winner. Each Shatterpoint is shown on its own because mechanics vary between events.")

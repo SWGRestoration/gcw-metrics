@@ -17,7 +17,7 @@ class AppTests(unittest.TestCase):
         self.assertFalse(at.exception)
         self.assertFalse(at.error)
 
-    def test_periods_and_latest_event(self):
+    def test_periods_and_shatterpoints(self):
         at = self.start()
         self.healthy(at)
         self.assertEqual(len(at.sidebar.selectbox[0].options), 4)
@@ -27,10 +27,15 @@ class AppTests(unittest.TestCase):
             at.sidebar.selectbox[0].select(cycle).run(timeout=60)
             self.healthy(at)
             self.assertEqual(at.metric[2].value, count)
-        at.sidebar.radio[0].set_value("Latest Shatterpoint").run(timeout=60)
+        at.sidebar.radio[0].set_value("Shatterpoints").run(timeout=60)
         self.healthy(at)
+        self.assertEqual(len(at.sidebar.selectbox[0].options), 2)
         self.assertTrue(any("Naboo" in h.value for h in at.subheader))
         self.assertEqual(at.metric[0].value, "1,383")
+        at.sidebar.selectbox[0].select_index(1).run(timeout=60)
+        self.healthy(at)
+        self.assertTrue(any("Talus" in h.value for h in at.subheader))
+        self.assertEqual(at.metric[0].value, "2,576")
 
     def test_filters_reset(self):
         at = self.start()

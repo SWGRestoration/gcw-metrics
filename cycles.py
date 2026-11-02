@@ -5,7 +5,7 @@ from pathlib import Path
 def available_cycles(root):
     latest = {}
     for path in Path(root).glob('cycle-*/metadata.json'):
-        if not (path.parent / 'gcw_points.csv').is_file() or not (path.parent / 'crisis.csv').is_file():
+        if not (path.parent / 'gcw_points.csv').is_file():
             continue
         meta = json.loads(path.read_text())
         key = meta['start']

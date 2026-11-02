@@ -6,16 +6,16 @@ import streamlit as st
 from analytics import load_data, grouped_totals, grouped_timeseries, faction_line_figure, breakdown_bar_figure
 from cycles import available_cycles
 from design import setup, header, chart, table, date, FACTION_COLORS
-from event_view import show_latest_event
+from event_view import show_shatterpoints
 
 setup()
 ROOT = Path(__file__).parent
 ARCHIVE = Path(os.environ.get("GCW_DATA_DIR", str(ROOT / "data" / "published")))
 
 st.sidebar.markdown("### GCW Observatory")
-view = st.sidebar.radio("Explore", ["GCW cycles", "Latest Shatterpoint"])
-if view == "Latest Shatterpoint":
-    show_latest_event(ARCHIVE / "latest_event.json")
+view = st.sidebar.radio("Explore", ["GCW cycles", "Shatterpoints"])
+if view == "Shatterpoints":
+    show_shatterpoints(ARCHIVE / "events")
     st.stop()
 
 cycles = [c for c in available_cycles(ARCHIVE) if c.get("regional_rows", 0) > 0]
@@ -181,5 +181,5 @@ with st.expander("About these numbers"):
         st.write("This early period covers February 22–March 27, 2026. Full cycle boundaries and the original timezone are not confirmed; times are presented as UTC.")
     else:
         st.write(f"Cycle dates: {label}. Available scoring runs from {date(minimum)} through {date(maximum)}; coverage across the full cycle is incomplete.")
-    st.write("GCW points include gains and deductions. They do not establish final control, personal rewards, or a cycle winner. Latest Shatterpoint uses its own event dates and scoring scale.")
+    st.write("GCW points include gains and deductions. They do not establish final control, personal rewards, or a cycle winner. Shatterpoints use their own event dates and scoring scale.")
 st.caption("SWG Restoration · GCW Observatory")
